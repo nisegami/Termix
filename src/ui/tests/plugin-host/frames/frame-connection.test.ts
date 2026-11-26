@@ -532,3 +532,70 @@ describe("host actions for a frame", () => {
     resetShellBridge();
   });
 });
+
+describe("a view asking for focus", () => {
+  const events = () =>
+    (vi.mocked(iframe.contentWindow!.postMessage).mock.calls as unknown[][])
+      .map((args) => args[0] as Record<string, unknown>)
+      .filter((entry) => entry.t === "event")
+      .map((entry) => entry.name);
+
+  beforeEach(() => {
+    vi.spyOn(iframe, "getClientRects").mockReturnValue([
+      {},
+    ] as unknown as DOMRectList);
+  });
+
+  async function ask() {
+    connectFrame(iframe, "ssh-terminal", "view", "tab:terminal", {});
+    send({ ch: FRAME_CHANNEL, t: "hello", role: "view", key: "tab:terminal" });
+    send({ ch: FRAME_CHANNEL, t: "event", name: "focusRequest", data: null });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  it("focuses a visible frame and tells it so", async () => {
+    const button = document.createElement("button");
+    document.body.appendChild(button);
+    button.focus();
+    await ask();
+    expect(document.activeElement).toBe(iframe);
+    expect(events()).toContain("focusGranted");
+    button.remove();
+  });
+
+  it("leaves a hidden tab's frame alone", async () => {
+    iframe.style.visibility = "hidden";
+    await ask();
+    expect(document.activeElement).not.toBe(iframe);
+    expect(events()).not.toContain("focusGranted");
+  });
+
+  it("keeps focus in a shell field or dialog", async () => {
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    input.focus();
+    await ask();
+    expect(document.activeElement).toBe(input);
+    input.remove();
+
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    const button = document.createElement("button");
+    dialog.appendChild(button);
+    document.body.appendChild(dialog);
+    button.focus();
+    send({ ch: FRAME_CHANNEL, t: "event", name: "focusRequest", data: null });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(document.activeElement).toBe(button);
+    expect(events()).not.toContain("focusGranted");
+    dialog.remove();
+  });
+
+  it("ignores a background frame", async () => {
+    connectFrame(iframe, "ssh-terminal", "background", undefined, {});
+    send({ ch: FRAME_CHANNEL, t: "hello", role: "background" });
+    send({ ch: FRAME_CHANNEL, t: "event", name: "focusRequest", data: null });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(document.activeElement).not.toBe(iframe);
+  });
+});

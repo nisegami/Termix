@@ -56,6 +56,7 @@ import { FrameHooks } from "./frame-hooks";
 import { setForeignRuntime } from "@/components/foreign/foreign-runtime";
 import { createForeignRuntime, receiveForeignEvent } from "./foreign-client";
 import { focusEdge, watchEdges } from "./frame-edges";
+import { focusGranted, watchFocusRequests } from "./frame-focus";
 import { withPluginScope } from "@/plugin-host/scope";
 import { FrameRoot, setFrameProps, type FrameFit } from "./frame-root";
 import { setShellScrollEmitter, setShellViewport } from "./shell-scroll";
@@ -427,6 +428,9 @@ async function boot() {
     if (!component) {
       throw new Error(`${pluginId} has no view "${params.key ?? ""}"`);
     }
+    // The view focusing its own element while the shell holds focus asks
+    // the shell to hand focus to this frame.
+    watchFocusRequests(() => port.emit("focusRequest"));
     root.render(
       createElement(FrameRoot, {
         fit: params.fit,
@@ -511,6 +515,10 @@ async function boot() {
       return;
     }
     if (receiveForeignEvent(name, data)) return;
+    if (name === "focusGranted") {
+      focusGranted();
+      return;
+    }
     if (name === "focusEdge") {
       focusEdge(data === "last" ? "last" : "first", (dir) =>
         port.emit("focusOut", { dir }),

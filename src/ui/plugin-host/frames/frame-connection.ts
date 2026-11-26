@@ -915,6 +915,14 @@ function handleEvent(connection: FrameConnection, name: string, data: unknown) {
       connection.lastInteraction = Date.now();
       forwardKey(data);
       return;
+    case "focusRequest":
+      if (connection.role !== "view") return;
+      if (!frameMayTakeFocus(connection.iframe)) return;
+      if (document.activeElement !== connection.iframe) {
+        connection.iframe.focus({ preventScroll: true });
+      }
+      connection.port?.emit("focusGranted");
+      return;
     case "ready":
       connection.events.onReady?.();
       return;
@@ -954,6 +962,32 @@ function handleEvent(connection: FrameConnection, name: string, data: unknown) {
     default:
       connection.events.onEvent?.(name, data);
   }
+}
+
+/**
+ * A view's code may move focus into its frame, as page plugins could, while
+ * the frame is on screen and the user is not busy elsewhere in the shell: a
+ * field, a dialog or a menu keeps its focus.
+ */
+export function frameMayTakeFocus(iframe: HTMLIFrameElement): boolean {
+  if (!iframe.isConnected || iframe.closest("[inert]")) return false;
+  // A hidden tab's frame is display:none (no boxes) or visibility:hidden,
+  // which it inherits.
+  if (iframe.getClientRects().length === 0) return false;
+  if (getComputedStyle(iframe).visibility === "hidden") return false;
+  const active = document.activeElement as HTMLElement | null;
+  if (!active || active === document.body || active === iframe) return true;
+  if (
+    active.isContentEditable ||
+    active instanceof HTMLInputElement ||
+    active instanceof HTMLTextAreaElement ||
+    active instanceof HTMLSelectElement
+  ) {
+    return false;
+  }
+  return !active.closest(
+    '[role="dialog"], [role="alertdialog"], [role="menu"]',
+  );
 }
 
 /** Replays a key the frame left alone on the shell, for its shortcuts. */
